@@ -1,0 +1,348 @@
+import tkinter as tk
+from tkinter import messagebox, ttk, simpledialog
+from peewee import *
+from peewee import IntegrityError
+from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+
+
+meu_bd = SqliteDatabase("meus_dados.db")
+
+
+class MinhaBase(Model):
+    class Meta:
+        database = meu_bd
+
+
+class Estudante(MinhaBase):
+    nome = CharField()
+    matricula = CharField(unique=True)
+    curso = CharField(default="Informática")
+
+
+class TipoProtocolo(MinhaBase):
+    nome = CharField(unique=True)
+
+
+class Protocolo(MinhaBase):
+    estudante = ForeignKeyField(Estudante, backref="protocolos")
+    justificativa = CharField()
+    data_hora = DateTimeField(default=datetime.now)
+    tipo = ForeignKeyField(TipoProtocolo, backref="protocolos")
+
+
+meu_bd.connect()
+meu_bd.create_tables([Estudante, TipoProtocolo, Protocolo])
+
+
+
+tipos_padrao = [
+    "Rematrícula fora do prazo",
+    "Readmissão de aluno no curso",
+    "Transferência para outra Instituição de Ensino",
+    "Trancamento de Matrícula",
+    "Recurso para desconsiderar cancelamento",
+    "Aproveitamento de Estudos Anteriores",
+    "Certificação de Conhecimentos anteriores",
+    "Declaração ou Atestado de Matrícula",
+    "Histórico Escolar",
+    "Justificativa de falta",
+    "Regime Domiciliar de Estudos",
+    "Reposição de Avaliação",
+    "Cancelamento de registro acadêmico",
+    "Revisão de Conceito/frequência",
+    "Certificação ENEM/Encceja"
+]
+
+
+for tp in tipos_padrao:
+    TipoProtocolo.get_or_create(nome=tp)
+
+
+
+def cadastrar_estudante():
+    nome = entry_nome.get()
+    matricula = entry_matricula.get()
+    curso = combo_curso.get()
+    if not nome or not matricula:
+        messagebox.showwarning("Aviso", "Preencha todos os campos!")
+        return
+    try:
+        est = Estudante.create(nome=nome, matricula=matricula, curso=curso)
+        messagebox.showinfo("Sucesso", f"Estudante {est.nome} cadastrado!")
+        listar_estudantes()
+        atualizar_resumo()
+        atualizar_comboboxes()
+    except IntegrityError:
+        messagebox.showerror("Erro", "Já existe um estudante com essa matrícula!")
+
+
+def listar_estudantes():
+    txt_exibir_est.delete("1.0", tk.END)
+    for est in Estudante.select():
+        txt_exibir_est.insert(tk.END, f"ID: {est.id} | {est.nome} ({est.matricula}) - {est.curso}\n")
+
+
+def editar_estudante():
+    try:
+        id_est = simpledialog.askinteger("Editar", "Digite o ID do estudante:")
+        est = Estudante.get_by_id(id_est)
+        novo_nome = simpledialog.askstring("Editar", "Novo nome:", initialvalue=est.nome)
+        if novo_nome:
+            est.nome = novo_nome
+            est.save()
+            listar_estudantes()
+    except Estudante.DoesNotExist:
+        messagebox.showerror("Erro", "Estudante não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao editar estudante!")
+
+
+def excluir_estudante():
+    try:
+        id_est = simpledialog.askinteger("Excluir", "Digite o ID do estudante:")
+        est = Estudante.get_by_id(id_est)
+        est.delete_instance(recursive=True)
+        listar_estudantes()
+        atualizar_resumo()
+        atualizar_comboboxes()
+    except Estudante.DoesNotExist:
+        messagebox.showerror("Erro", "Estudante não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao excluir estudante!")
+
+
+def cadastrar_tipo():
+    nome = combo_tipo_padrao.get().strip()
+    if nome:
+        TipoProtocolo.get_or_create(nome=nome)
+        listar_tipos()
+        atualizar_resumo()
+        atualizar_comboboxes()
+    else:
+        messagebox.showwarning("Aviso", "Selecione ou digite um tipo de protocolo!")
+
+
+def listar_tipos():
+    txt_exibir_tipo.delete("1.0", tk.END)
+    for tp in TipoProtocolo.select():
+        txt_exibir_tipo.insert(tk.END, f"ID: {tp.id} | {tp.nome}\n")
+
+
+def editar_tipo():
+    try:
+        id_tp = simpledialog.askinteger("Editar", "Digite o ID do tipo:")
+        tp = TipoProtocolo.get_by_id(id_tp)
+        novo_nome = simpledialog.askstring("Editar", "Novo nome:", initialvalue=tp.nome)
+        if novo_nome:
+            tp.nome = novo_nome
+            tp.save()
+            listar_tipos()
+    except TipoProtocolo.DoesNotExist:
+        messagebox.showerror("Erro", "Tipo não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao editar tipo!")
+
+
+def excluir_tipo():
+    try:
+        id_tp = simpledialog.askinteger("Excluir", "Digite o ID do tipo:")
+        tp = TipoProtocolo.get_by_id(id_tp)
+        tp.delete_instance(recursive=True)
+        listar_tipos()
+        atualizar_resumo()
+        atualizar_comboboxes()
+    except TipoProtocolo.DoesNotExist:
+        messagebox.showerror("Erro", "Tipo não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao excluir tipo!")
+
+
+def atualizar_comboboxes():
+    combo_estudante["values"] = [f"{e.id} - {e.nome}" for e in Estudante.select()]
+    combo_tipo["values"] = [f"{t.id} - {t.nome}" for t in TipoProtocolo.select()]
+
+
+def cadastrar_protocolo():
+    try:
+        est_id = int(combo_estudante.get().split(" - ")[0])
+        tipo_id = int(combo_tipo.get().split(" - ")[0])
+        justificativa = entry_just.get()
+        Protocolo.create(
+            estudante=Estudante.get_by_id(est_id),
+            tipo=TipoProtocolo.get_by_id(tipo_id),
+            justificativa=justificativa
+        )
+        listar_protocolos()
+        atualizar_resumo()
+    except (Estudante.DoesNotExist, TipoProtocolo.DoesNotExist, IndexError, ValueError):
+        messagebox.showerror("Erro", "Selecione estudante, tipo e justificativa corretamente!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao cadastrar protocolo!")
+
+
+def listar_protocolos():
+    txt_exibir_proto.delete("1.0", tk.END)
+    for pr in Protocolo.select():
+        txt_exibir_proto.insert(
+            tk.END, f"ID: {pr.id} | {pr.estudante.nome} | {pr.tipo.nome} | {pr.justificativa} | {pr.data_hora}\n"
+        )
+
+
+def editar_protocolo():
+    try:
+        id_pr = simpledialog.askinteger("Editar", "Digite o ID do protocolo:")
+        pr = Protocolo.get_by_id(id_pr)
+        nova_just = simpledialog.askstring("Editar", "Nova justificativa:", initialvalue=pr.justificativa)
+        if nova_just:
+            pr.justificativa = nova_just
+            pr.save()
+            listar_protocolos()
+    except Protocolo.DoesNotExist:
+        messagebox.showerror("Erro", "Protocolo não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao editar protocolo!")
+
+
+def excluir_protocolo():
+    try:
+        id_pr = simpledialog.askinteger("Excluir", "Digite o ID do protocolo:")
+        pr = Protocolo.get_by_id(id_pr)
+        pr.delete_instance()
+        listar_protocolos()
+        atualizar_resumo()
+    except Protocolo.DoesNotExist:
+        messagebox.showerror("Erro", "Protocolo não encontrado!")
+    except Exception:
+        messagebox.showerror("Erro", "Erro inesperado ao excluir protocolo!")
+
+
+
+def atualizar_resumo():
+    lbl_total_est.config(text=f"Total de Estudantes: {Estudante.select().count()}")
+    lbl_total_tipo.config(text=f"Total de Tipos: {TipoProtocolo.select().count()}")
+    lbl_total_proto.config(text=f"Total de Protocolos: {Protocolo.select().count()}")
+    mostrar_graficos()
+
+
+def mostrar_graficos():
+    for widget in frame_graficos.winfo_children():
+        widget.destroy()
+
+
+    cursos = ["Agroindústria","Informática","Mecatrônica","Eletromecânica",
+              "Engenharia Elétrica","Engenharia de Software","Licenciatura em Química"]
+    valores = [Estudante.select().where(Estudante.curso == c).count() for c in cursos]
+
+
+    fig, ax = plt.subplots(figsize=(4,3))
+    ax.bar(cursos, valores)
+    ax.set_title("Estudantes por Curso")
+    ax.tick_params(axis='x', rotation=30)
+    canvas = FigureCanvasTkAgg(fig, master=frame_graficos)
+    canvas.draw()
+    canvas.get_tk_widget().pack(side="left", padx=10)
+
+
+    tipos = [tp.nome for tp in TipoProtocolo.select()]
+    valores_proto = [Protocolo.select().where(Protocolo.tipo == tp.id).count() for tp in TipoProtocolo.select()]
+
+
+    if tipos:
+        fig2, ax2 = plt.subplots(figsize=(4,3))
+        ax2.pie(valores_proto, labels=tipos, autopct="%1.0f%%")
+        ax2.set_title("Protocolos por Tipo")
+        canvas2 = FigureCanvasTkAgg(fig2, master=frame_graficos)
+        canvas2.draw()
+        canvas2.get_tk_widget().pack(side="right", padx=10)
+
+
+
+FONT_TITULO=("Arial",18,"bold")
+
+
+root = tk.Tk()
+root.title("Sistema IFPR")
+root.geometry("950x750")
+
+
+menubar = tk.Menu(root)
+menu_arquivo = tk.Menu(menubar, tearoff=False)
+menu_arquivo.add_command(label="Sair", command=root.quit)
+menubar.add_cascade(label="Arquivo", menu=menu_arquivo)
+
+
+menu_cadastro = tk.Menu(menubar, tearoff=False)
+menu_cadastro.add_command(label="Home", command=lambda: (frame_home.tkraise(), atualizar_comboboxes()))
+menu_cadastro.add_command(label="Estudantes", command=lambda: (frame_estudante.tkraise(), atualizar_comboboxes()))
+menu_cadastro.add_command(label="Tipos de Protocolo", command=lambda: (frame_tipo.tkraise(), atualizar_comboboxes()))
+menu_cadastro.add_command(label="Protocolos", command=lambda: (frame_protocolo.tkraise(), atualizar_comboboxes()))
+menubar.add_cascade(label="Cadastro", menu=menu_cadastro)
+
+
+root.config(menu=menubar)
+
+
+
+frame_home = tk.Frame(root, bg="lightcyan")
+frame_estudante = tk.Frame(root, bg="lightgreen")
+frame_tipo = tk.Frame(root, bg="lightyellow")
+frame_protocolo = tk.Frame(root, bg="lightpink")
+
+
+for f in (frame_home, frame_estudante, frame_tipo, frame_protocolo):
+    f.grid(row=0, column=0, sticky="nsew")
+
+
+
+tk.Label(frame_home, text="Bem-vindo ao Sistema IFPR", font=FONT_TITULO, bg="lightcyan").pack(pady=20)
+lbl_total_est = tk.Label(frame_home, text="Total de Estudantes: 0", font=("Arial",14), bg="lightcyan"); lbl_total_est.pack(pady=5)
+lbl_total_tipo = tk.Label(frame_home, text="Total de Tipos: 0", font=("Arial",14), bg="lightcyan"); lbl_total_tipo.pack(pady=5)
+lbl_total_proto = tk.Label(frame_home, text="Total de Protocolos: 0", font=("Arial",14), bg="lightcyan"); lbl_total_proto.pack(pady=5)
+tk.Button(frame_home, text="Atualizar Resumo", command=atualizar_resumo, bg="lightblue").pack(pady=10)
+frame_graficos = tk.Frame(frame_home, bg="lightcyan"); frame_graficos.pack(pady=20)
+
+
+
+tk.Label(frame_estudante, text="Cadastro de Estudantes", font=FONT_TITULO, bg="lightgreen").pack(pady=10)
+entry_nome = tk.Entry(frame_estudante, width=40); entry_nome.pack()
+entry_matricula = tk.Entry(frame_estudante, width=40); entry_matricula.pack()
+combo_curso = ttk.Combobox(frame_estudante,
+    values=["Agroindústria","Informática","Mecatrônica","Eletromecânica","Engenharia Elétrica","Engenharia de Software","Licenciatura em Química"],
+    state="readonly", width=37)
+combo_curso.set("Informática"); combo_curso.pack()
+tk.Button(frame_estudante, text="Cadastrar", command=cadastrar_estudante, bg="lightgreen").pack(pady=5)
+tk.Button(frame_estudante, text="Listar", command=listar_estudantes, bg="lightblue").pack(pady=5)
+tk.Button(frame_estudante, text="Editar", command=editar_estudante, bg="khaki").pack(pady=5)
+tk.Button(frame_estudante, text="Excluir", command=excluir_estudante, bg="tomato").pack(pady=5)
+txt_exibir_est = tk.Text(frame_estudante, height=12, width=70); txt_exibir_est.pack()
+
+
+
+tk.Label(frame_tipo, text="Cadastro de Tipos de Protocolo", font=FONT_TITULO, bg="lightyellow").pack(pady=10)
+combo_tipo_padrao = ttk.Combobox(frame_tipo, values=tipos_padrao, width=60); combo_tipo_padrao.pack(pady=5)
+tk.Button(frame_tipo, text="Cadastrar", command=cadastrar_tipo, bg="lightgreen").pack(pady=5)
+tk.Button(frame_tipo, text="Listar", command=listar_tipos, bg="lightblue").pack(pady=5)
+tk.Button(frame_tipo, text="Editar", command=editar_tipo, bg="khaki").pack(pady=5)
+tk.Button(frame_tipo, text="Excluir", command=excluir_tipo, bg="tomato").pack(pady=5)
+txt_exibir_tipo = tk.Text(frame_tipo, height=12, width=70); txt_exibir_tipo.pack()
+
+
+
+tk.Label(frame_protocolo, text="Cadastro de Protocolos", font=FONT_TITULO, bg="lightpink").pack(pady=10)
+combo_estudante = ttk.Combobox(frame_protocolo, width=60, state="readonly"); combo_estudante.pack()
+combo_tipo = ttk.Combobox(frame_protocolo, width=60, state="readonly"); combo_tipo.pack()
+entry_just = tk.Entry(frame_protocolo, width=60); entry_just.pack()
+tk.Button(frame_protocolo, text="Cadastrar", command=cadastrar_protocolo, bg="lightgreen").pack(pady=5)
+tk.Button(frame_protocolo, text="Listar", command=listar_protocolos, bg="lightblue").pack(pady=5)
+tk.Button(frame_protocolo, text="Editar", command=editar_protocolo, bg="khaki").pack(pady=5)
+tk.Button(frame_protocolo, text="Excluir", command=excluir_protocolo, bg="tomato").pack(pady=5)
+txt_exibir_proto = tk.Text(frame_protocolo, height=12, width=80); txt_exibir_proto.pack()
+
+
+atualizar_resumo()
+atualizar_comboboxes()
+frame_home.tkraise()
+root.mainloop()
